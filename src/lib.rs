@@ -7,7 +7,60 @@ use std::sync::Mutex;
 
 static PORT_IDX: Lazy<Mutex<u16>> = Lazy::new(|| Mutex::new(1000));
 
-/// Returns a free unique local port. Every time a call to this function during one run should return a unique address.
+/// Generates a unique offset, from which `get_unique_free_port` will start to find free ports
+/// incrementally. The value is higher than 1000, and less than `u16::MAX - 1000`. It uses the full
+/// module path and the enclosed function name, so it's always the same for the scope of the same
+/// function.
+#[macro_export]
+macro_rules! generate_start_port {
+    () => {{
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn f() {}
+        fn type_name_of<T>(_: T) -> &'static str {
+            std::any::type_name::<T>()
+        }
+        let name = type_name_of(f);
+        let name = &name[..name.len() - 3];
+        let mut hasher = DefaultHasher::new();
+        name.hash(&mut hasher);
+        // we have offset of 1000, which is the starting port numnber, so we should move the whole
+        // offset and prevent it from overflowing u16::MAX
+        1000 + (hasher.finish() % ((u16::MAX - 1000) as u64)) as u16
+    }};
+}
+
+/// Sets the port number, from which `get_unique_free_port()` will start generating free ports
+/// incrementally.
+///
+/// # Examples
+///
+/// ```
+/// use unique_port;
+/// 
+/// // this may fail if port number 1042 is not free.
+///
+/// let pindex = 1042;
+///
+/// unique_port::set_port_index(pindex).unwrap();
+/// assert_eq!(pindex, unique_port::get_unique_free_port().unwrap());
+///
+/// unique_port::set_port_index(pindex).unwrap();
+/// assert_eq!(pindex, unique_port::get_unique_free_port().unwrap());
+///
+/// ```
+pub fn set_port_index(pindex: u16) -> Result<(), String> {
+    let mut port_idx = PORT_IDX
+        .lock()
+        .map_err(|_| "Failed to aquire the lock".to_owned())?;
+    *port_idx = pindex;
+
+    Ok(())
+}
+
+/// Returns a free unique local port. Every time a call to this function during one run should
+/// return a unique address.
 ///
 /// # Examples
 /// ```
