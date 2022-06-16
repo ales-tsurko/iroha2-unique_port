@@ -1,11 +1,12 @@
 #![crate_name = "unique_port"]
 
-use once_cell::sync::Lazy;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::ops::Range;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU16, Ordering};
 
-static PORT_IDX: Lazy<Mutex<u16>> = Lazy::new(|| Mutex::new(1000));
+use once_cell::sync::Lazy;
+
+static PORT_IDX: Lazy<AtomicU16> = Lazy::new(|| AtomicU16::new(1000));
 
 /// Generates a unique offset, from which `get_unique_free_port` will start to find free ports
 /// incrementally. The value is higher than 1000, and less than `u16::MAX - 1000`. It uses the full
@@ -38,25 +39,20 @@ macro_rules! generate_start_port {
 ///
 /// ```
 /// use unique_port;
-/// 
+///
 /// // this may fail if port number 1042 is not free.
 ///
 /// let pindex = 1042;
 ///
-/// unique_port::set_port_index(pindex).unwrap();
+/// unique_port::set_port_index(pindex);
 /// assert_eq!(pindex, unique_port::get_unique_free_port().unwrap());
 ///
-/// unique_port::set_port_index(pindex).unwrap();
+/// unique_port::set_port_index(pindex);
 /// assert_eq!(pindex, unique_port::get_unique_free_port().unwrap());
 ///
 /// ```
-pub fn set_port_index(pindex: u16) -> Result<(), String> {
-    let mut port_idx = PORT_IDX
-        .lock()
-        .map_err(|_| "Failed to aquire the lock".to_owned())?;
-    *port_idx = pindex;
-
-    Ok(())
+pub fn set_port_index(pindex: u16) {
+    PORT_IDX.store(pindex, Ordering::Relaxed);
 }
 
 /// Returns a free unique local port. Every time a call to this function during one run should
@@ -71,12 +67,10 @@ pub fn set_port_index(pindex: u16) -> Result<(), String> {
 /// assert_ne!(port_1, port_2);
 /// ```
 pub fn get_unique_free_port() -> Result<u16, String> {
-    let mut port_idx = PORT_IDX
-        .lock()
-        .map_err(|_| "Failed to aquire the lock".to_owned())?;
-    let result = get_free_port(*port_idx..u16::MAX);
+    let port_idx = PORT_IDX.load(Ordering::Relaxed);
+    let result = get_free_port(port_idx..u16::MAX);
     if let Ok(port) = result {
-        *port_idx = port + 1;
+        PORT_IDX.store(port + 1, Ordering::Relaxed);
     }
     result
 }
