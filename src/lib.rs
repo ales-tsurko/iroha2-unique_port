@@ -13,7 +13,7 @@ static PORT_IDX: Lazy<AtomicU16> = Lazy::new(|| AtomicU16::new(1000));
 /// module path and the enclosed function name, so it's always the same for the scope of the same
 /// function.
 #[macro_export]
-macro_rules! generate_start_port {
+macro_rules! generate_unique_start_port {
     () => {{
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
