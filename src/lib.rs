@@ -2,11 +2,11 @@
 
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::ops::Range;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
 
-static PORT_IDX: Lazy<AtomicU16> = Lazy::new(|| AtomicU16::new(1000));
+static PORT_IDX: Lazy<Mutex<u16>> = Lazy::new(|| Mutex::new(1000));
 
 /// Generates a unique offset, from which `get_unique_free_port` will start to find free ports
 /// incrementally. The value is higher than 1000, and less than `u16::MAX - 1000`. It uses the full
@@ -44,15 +44,19 @@ macro_rules! generate_unique_start_port {
 ///
 /// let pindex = 1042;
 ///
-/// unique_port::set_port_index(pindex);
+/// unique_port::set_port_index(pindex).unwrap();
 /// assert_eq!(pindex, unique_port::get_unique_free_port().unwrap());
 ///
-/// unique_port::set_port_index(pindex);
+/// unique_port::set_port_index(pindex).unwrap();
 /// assert_eq!(pindex, unique_port::get_unique_free_port().unwrap());
 ///
 /// ```
-pub fn set_port_index(pindex: u16) {
-    PORT_IDX.store(pindex, Ordering::Relaxed);
+pub fn set_port_index(pindex: u16) -> Result<(), String> {
+    *PORT_IDX
+        .lock()
+        .map_err(|_| "Failed to aquire the lock".to_owned())? = pindex;
+
+    Ok(())
 }
 
 /// Returns a free unique local port. Every time a call to this function during one run should
@@ -67,10 +71,12 @@ pub fn set_port_index(pindex: u16) {
 /// assert_ne!(port_1, port_2);
 /// ```
 pub fn get_unique_free_port() -> Result<u16, String> {
-    let port_idx = PORT_IDX.load(Ordering::Relaxed);
-    let result = get_free_port(port_idx..u16::MAX);
+    let mut port_idx = PORT_IDX
+        .lock()
+        .map_err(|_| "Failed to aquire the lock".to_owned())?;
+    let result = get_free_port(*port_idx..u16::MAX);
     if let Ok(port) = result {
-        PORT_IDX.store(port + 1, Ordering::Relaxed);
+        *port_idx = port + 1;
     }
     result
 }
